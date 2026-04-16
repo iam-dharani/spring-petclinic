@@ -1,31 +1,98 @@
 pipeline {
-    agent { label 'JDK8'}
+    agent { label 'build' }
+    parameters {
+        string(name: 'APP_NAME', defaultValue: 'myapp')
+    }
     environment {
-        MVN = '/usr/share/maven/bin/mvn'
+        IMAGE = "${params.APP_NAME}:${BUILD_NUMBER}"
     }
-    options { timeout(time: 1, unit: 'HOURS') }
-    triggers { cron('0 * * * *') }
     stages {
-        stage('git checkout') {
+        stage('stage I: Git Checkout') {
             steps {
-                checkout scm
+                echo "Git checkout"
+                git url: 'https://github.com/iam-dharani/spring-petclinic.git', credentialsId: '', branch: 'main'
             }
         }
-        stage('code compilation') {
+        stage('stage II: build') {
             steps {
-                sh '$MVN clean package'
+                echo "Buiding the package"
+                sh 'mvn clean package'
+            }
+            post {
+                success {
+                    archiveArtifacts artifacts: 'target/*.jar', followSymlinks: false
+                }
             }
         }
-        stage('archive artifact and junit test report') {
+        stage('stage III: code coverage') {
             steps {
-                junit testResults : 'target/surefire-reports/*.xml'
+                sh 'mvn jacoco:report'
             }
         }
-
-    }
-    post { 
-        always { echo "pipeline is running" }
-        success { echo "success" }
-        unsuccessful { echo "yet to do changes" }
+        stage('stage IV: SCA and SAST') {
+            parallel {
+                stage('OWASP') {
+                    steps {
+                        echo "OWASP vulnerability check"
+                        dependencyCheck additionalArguments: '''
+                        --scan .
+                        --failOnCVSS 7
+                        --format ALL''', 
+                        odcInstallation: 'owasp-dc'
+                    }
+                }
+                stage('SAST') {
+                    steps {
+                        echo "SAST using sonar scanner"
+                        withSonarQubeEnv('sonarqube') {
+                            sh """
+                            sonar-scanner \
+                            -Dsonar.projectKey=${params.APP_NAME} \
+                            -Dsonar.projectName=${params.APP_NAME} \
+                            -Dsonar.java.binaries=target """
+                        }
+                    }
+                }
+            }
+        }
+        stage('stage V: QualityGate') {
+            steps {
+                echo "Quality Gate Check"
+                script {
+                    def qg = waitForQualityGate()
+                    if (qg.status != 'OK') {
+                        error "Quality Gate check failed hence aborting the pipeline ${qg.status}"
+                    }
+                    else {
+                        echo "Quality Gate check success ${qg.status}"
+                    }
+                }
+            }
+        }
+        stage('stage VI: Image build and push') {
+            steps {
+                echo "create docker image and push to docker hub"
+                script {
+                    def image = docker.build("${env.IMAGE}")
+                    docker.withRegistry('https://registry.hub.docker.com','docker-cred'){
+                    image.push()
+                    }
+                }
+            }
+        }
+        stage('stage VII: trivy image scan') {
+            steps {
+                sh """trivy image \
+                --severity HIGH,CRITICAL \
+                --exit-code 1 \
+                 ${env.IMAGE}"""
+            }
+        }
+        stage('stage VIII: smokerun') {
+            steps {
+                sh "docker run -d -p 8081:8080 --name smokerun ${env.IMAGE}"
+                sh "sleep 20; docker rm --force smokerun"
+            }
+        }
     }
 }
