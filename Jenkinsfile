@@ -6,6 +6,9 @@ pipeline {
     environment {
         IMAGE = "${params.APP_NAME}:${BUILD_NUMBER}"
     }
+    tools {
+    	maven 'mvn'
+    }
     stages {
         stage('stage I: Git Checkout') {
             steps {
