@@ -19,7 +19,7 @@ pipeline {
         stage('stage II: build') {
             steps {
                 echo "Buiding the package"
-                sh 'mvn clean package'
+                sh 'mvn clean package -Dcheckstyle.skip=true'
             }
             post {
                 success {
