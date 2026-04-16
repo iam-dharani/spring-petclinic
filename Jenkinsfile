@@ -7,13 +7,13 @@ pipeline {
         IMAGE = "${params.APP_NAME}:${BUILD_NUMBER}"
     }
     tools {
-    	maven 'mvn'
+        mave 'mvn'
     }
     stages {
         stage('stage I: Git Checkout') {
             steps {
                 echo "Git checkout"
-                git url: 'https://github.com/iam-dharani/spring-petclinic.git', credentialsId: '', branch: 'main'
+                git url: 'https://github.com/iam-dharani/spring-petclinic.git', branch: 'main'
             }
         }
         stage('stage II: build') {
@@ -37,22 +37,29 @@ pipeline {
                 stage('OWASP') {
                     steps {
                         echo "OWASP vulnerability check"
-                        dependencyCheck additionalArguments: '''
+                        withCredentials([string(credentialsId: 'nvd-key', variable: 'NVD_KEY')]) {
+                        dependencyCheck additionalArguments: """
                         --scan .
                         --failOnCVSS 7
-                        --format ALL''', 
+                        --data /var/owasp-data
+                        --nvdApiKey $NVD_KEY
+                        --format ALL""", 
                         odcInstallation: 'owasp-dc'
+                        }
                     }
                 }
                 stage('SAST') {
                     steps {
                         echo "SAST using sonar scanner"
                         withSonarQubeEnv('sonarqube') {
-                            sh """
-                            sonar-scanner \
-                            -Dsonar.projectKey=${params.APP_NAME} \
-                            -Dsonar.projectName=${params.APP_NAME} \
-                            -Dsonar.java.binaries=target """
+                            script {
+                                def sonarHome = tool 'sonar-scanner'
+                                sh """
+                                ${sonarHome}/bin/sonar-scanner \
+                                -Dsonar.projectKey=${params.APP_NAME} \
+                                -Dsonar.projectName=${params.APP_NAME} \
+                                -Dsonar.java.binaries=target """
+                            }
                         }
                     }
                 }
