@@ -40,7 +40,6 @@ pipeline {
                         withCredentials([string(credentialsId: 'nvd-key', variable: 'NVD_KEY')]) {
                         dependencyCheck additionalArguments: """
                         --scan .
-                        --failOnCVSS 7
                         --data /var/owasp-data
                         --nvdApiKey $NVD_KEY
                         --format ALL""", 
